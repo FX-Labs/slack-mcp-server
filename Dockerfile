@@ -1,33 +1,43 @@
-FROM node:24.4.0-alpine3.22 AS builder
-
-# Must be entire project because `prepare` script is run during `npm install` and requires all files.
-COPY . /app
+# Multi-stage build for optimal image size
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
-# Install all dependencies (including devDependencies) for building
-RUN --mount=type=cache,target=/root/.npm npm install
+# Copy dependency files
+COPY package.json package-lock.json ./
 
-# Build the project (this will use the devDependencies like typescript and shx)
+# Install ALL dependencies (including dev dependencies for build)
+RUN npm ci
+
+# Copy source code
+COPY tsconfig.json ./
+COPY *.ts ./
+
+# Build the project
 RUN npm run build
 
-FROM node:24.4.0-alpine3.22 AS release
-
-# Install tini for proper signal handling
-RUN apk add --no-cache tini
-
-COPY --from=builder /app/dist /app/dist
-COPY --from=builder /app/package.json /app/package.json
-COPY --from=builder /app/package-lock.json /app/package-lock.json
-
-ENV NODE_ENV=production
+# Production image
+FROM node:24-slim AS production
 
 WORKDIR /app
 
-RUN npm ci --ignore-scripts --omit-dev
+# Copy dependency files
+COPY package.json package-lock.json ./
 
-# Install the package globally to make slack-mcp command available
-RUN npm install -g .
+# Install ONLY production dependencies
+RUN npm ci --omit=dev
 
-# Use tini as PID 1 for proper signal handling
-ENTRYPOINT ["tini", "--", "slack-mcp"]
+# Copy built code from builder stage
+COPY --from=builder /app/dist ./dist
+
+# Create non-root user for security
+RUN useradd -r -u 1001 -g node mcpuser && \
+    chown -R mcpuser:node /app
+
+USER mcpuser
+
+# Expose port (Cloud Run will set PORT env var)
+EXPOSE 8080
+
+# Start server
+CMD ["node", "dist/index.js"]
