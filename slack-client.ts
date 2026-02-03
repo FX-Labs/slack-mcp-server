@@ -83,8 +83,8 @@ export class SlackClient {
 	 */
 	async getChannels( limit: number = 100, cursor?: string ): Promise<any> {
 		const params = new URLSearchParams({
-			types: 'public_channel,private_channel',
 			exclude_archived: 'true',
+			types: 'public_channel,private_channel',
 			limit: Math.min( limit, 200 ).toString(),
 		})
 
