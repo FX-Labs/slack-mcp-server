@@ -10,7 +10,7 @@ export function stripChannel( channel: any ) {
 		name: channel.name,
 		topic: channel.topic?.value,
 		purpose: channel.purpose?.value,
-		num_members: channel.num_members,
+		member_count: channel.num_members,
 		is_private: channel.is_private,
 		is_member: channel.is_member,
 		is_archived: channel.is_archived,
@@ -115,4 +115,21 @@ export function stripSearchMatch( match: any ) {
 	}
 
 	return stripped
+}
+
+/**
+ * Strip bookmark object to essential fields
+ *
+ * @param bookmark - Raw Slack bookmark object
+ * @returns Stripped bookmark with id, title, type, link, emoji, date_created
+ */
+export function stripBookmark( bookmark: any ) {
+	return {
+		id: bookmark.id,
+		title: bookmark.title,
+		type: bookmark.type,
+		link: bookmark.link,
+		emoji: bookmark.emoji,
+		date_created: bookmark.date_created,
+	}
 }

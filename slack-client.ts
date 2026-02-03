@@ -1,12 +1,25 @@
 export class SlackClient {
 	private botHeaders: { Authorization: string; 'Content-Type': string }
 	private userCache: Map<string, any> = new Map()
-
 	constructor( token: string ) {
 		this.botHeaders = {
 			Authorization: `Bearer ${token}`,
 			'Content-Type': 'application/json',
 		}
+	}
+
+	/**
+	 * Get workspaces the token has access to
+	 *
+	 * @returns auth.teams.list response with team objects
+	 */
+	async getTeam(): Promise<any> {
+		const response = await fetch(
+			'https://slack.com/api/auth.teams.list',
+			{ headers: this.botHeaders },
+		)
+
+		return response.json()
 	}
 
 	/**
@@ -42,6 +55,38 @@ export class SlackClient {
 		}
 
 		return { id: user_id }
+	}
+
+	/**
+	 * Resolve channel_id or user_id to a channel ID
+	 *
+	 * @param channel_id - Channel or conversation ID (used directly if provided)
+	 * @param user_id - User ID to open a DM with (resolved via conversations.open)
+	 * @returns Resolved channel ID
+	 */
+	private async resolveChannel( channel_id?: string, user_id?: string ): Promise<string> {
+		if ( channel_id ) {
+			return channel_id
+		}
+
+		if ( user_id ) {
+			const response = await fetch( 'https://slack.com/api/conversations.open', {
+				method: 'POST',
+				headers: this.botHeaders,
+				body: JSON.stringify({
+					users: user_id,
+				}),
+			})
+			const data = await response.json()
+
+			if ( data.ok && data.channel?.id ) {
+				return data.channel.id
+			}
+
+			throw new Error( `Failed to open DM with user ${user_id}: ${data.error || 'unknown error'}` )
+		}
+
+		throw new Error( 'Either channel_id or user_id must be provided' )
 	}
 
 	/**
@@ -81,7 +126,7 @@ export class SlackClient {
 	 * @param cursor - Pagination cursor for next page
 	 * @returns Slack conversations.list response
 	 */
-	async getChannels( limit: number = 100, cursor?: string ): Promise<any> {
+	async getChannels( limit: number = 100, cursor?: string, team_id?: string ): Promise<any> {
 		const params = new URLSearchParams({
 			exclude_archived: 'true',
 			types: 'public_channel,private_channel',
@@ -90,6 +135,10 @@ export class SlackClient {
 
 		if ( cursor ) {
 			params.append( 'cursor', cursor )
+		}
+
+		if ( team_id ) {
+			params.append( 'team_id', team_id )
 		}
 
 		const response = await fetch(
@@ -103,16 +152,19 @@ export class SlackClient {
 	/**
 	 * Post message to channel or DM conversation
 	 *
-	 * @param channel_id - Channel or conversation ID
+	 * @param channel_id - Channel or conversation ID (optional if user_id provided)
 	 * @param text - Message text to post
+	 * @param user_id - User ID to DM (optional if channel_id provided)
 	 * @returns Slack chat.postMessage response
 	 */
-	async postMessage( channel_id: string, text: string ): Promise<any> {
+	async postMessage( channel_id: string | undefined, text: string, user_id?: string ): Promise<any> {
+		const resolved = await this.resolveChannel( channel_id, user_id )
+
 		const response = await fetch( 'https://slack.com/api/chat.postMessage', {
 			method: 'POST',
 			headers: this.botHeaders,
 			body: JSON.stringify({
-				channel: channel_id,
+				channel: resolved,
 				text: text,
 			}),
 		})
@@ -123,21 +175,25 @@ export class SlackClient {
 	/**
 	 * Post reply to message thread
 	 *
-	 * @param channel_id - Channel ID containing thread
+	 * @param channel_id - Channel ID containing thread (optional if user_id provided)
 	 * @param thread_ts - Parent message timestamp
 	 * @param text - Reply text
+	 * @param user_id - User ID to DM (optional if channel_id provided)
 	 * @returns Slack chat.postMessage response
 	 */
 	async postReply(
-		channel_id: string,
+		channel_id: string | undefined,
 		thread_ts: string,
 		text: string,
+		user_id?: string,
 	): Promise<any> {
+		const resolved = await this.resolveChannel( channel_id, user_id )
+
 		const response = await fetch( 'https://slack.com/api/chat.postMessage', {
 			method: 'POST',
 			headers: this.botHeaders,
 			body: JSON.stringify({
-				channel: channel_id,
+				channel: resolved,
 				thread_ts: thread_ts,
 				text: text,
 			}),
@@ -224,13 +280,17 @@ export class SlackClient {
 	 * @param cursor - Pagination cursor for next page
 	 * @returns Slack users.list response
 	 */
-	async getUsers( limit: number = 100, cursor?: string ): Promise<any> {
+	async getUsers( limit: number = 100, cursor?: string, team_id?: string ): Promise<any> {
 		const params = new URLSearchParams({
 			limit: Math.min( limit, 200 ).toString(),
 		})
 
 		if ( cursor ) {
 			params.append( 'cursor', cursor )
+		}
+
+		if ( team_id ) {
+			params.append( 'team_id', team_id )
 		}
 
 		const response = await fetch( `https://slack.com/api/users.list?${params}`, {
@@ -256,6 +316,7 @@ export class SlackClient {
 		cursor?: string,
 		sort: string = 'timestamp',
 		sort_dir: string = 'desc',
+		team_id?: string,
 	): Promise<any> {
 		const params = new URLSearchParams({
 			query: query,
@@ -268,28 +329,14 @@ export class SlackClient {
 			params.append( 'cursor', cursor )
 		}
 
+		if ( team_id ) {
+			params.append( 'team_id', team_id )
+		}
+
 		const response = await fetch(
 			`https://slack.com/api/search.messages?${params}`,
 			{ headers: this.botHeaders },
 		)
-
-		return response.json()
-	}
-
-	/**
-	 * Open or resume DM/group DM conversation
-	 *
-	 * @param users - Comma-separated user IDs
-	 * @returns Slack conversations.open response
-	 */
-	async openConversation( users: string ): Promise<any> {
-		const response = await fetch( 'https://slack.com/api/conversations.open', {
-			method: 'POST',
-			headers: this.botHeaders,
-			body: JSON.stringify({
-				users: users,
-			}),
-		})
 
 		return response.json()
 	}
@@ -312,5 +359,217 @@ export class SlackClient {
 		)
 
 		return response.json()
+	}
+
+	/**
+	 * Get bookmarks in a channel
+	 *
+	 * @param channel_id - Channel ID to get bookmarks from
+	 * @returns Slack bookmarks.list response
+	 */
+	async getBookmarks( channel_id: string ): Promise<any> {
+		const params = new URLSearchParams({
+			channel_id: channel_id,
+		})
+
+		const response = await fetch(
+			`https://slack.com/api/bookmarks.list?${params}`,
+			{ headers: this.botHeaders },
+		)
+
+		return response.json()
+	}
+
+	/**
+	 * Add a bookmark to a channel
+	 *
+	 * @param channel_id - Channel ID to add bookmark to
+	 * @param title - Bookmark title
+	 * @param type - Bookmark type (e.g. "link")
+	 * @param link - URL for the bookmark
+	 * @param emoji - Emoji icon for the bookmark
+	 * @returns Slack bookmarks.add response
+	 */
+	async addBookmark(
+		channel_id: string,
+		title: string,
+		type: string,
+		link?: string,
+		emoji?: string,
+	): Promise<any> {
+		const body: any = {
+			channel_id: channel_id,
+			title: title,
+			type: type,
+		}
+
+		if ( link ) {
+			body.link = link
+		}
+
+		if ( emoji ) {
+			body.emoji = emoji
+		}
+
+		const response = await fetch( 'https://slack.com/api/bookmarks.add', {
+			method: 'POST',
+			headers: this.botHeaders,
+			body: JSON.stringify( body ),
+		})
+
+		return response.json()
+	}
+
+	/**
+	 * Get pinned messages in a channel
+	 *
+	 * @param channel_id - Channel ID to get pins from
+	 * @returns Slack pins.list response
+	 */
+	async getPins( channel_id: string ): Promise<any> {
+		const params = new URLSearchParams({
+			channel: channel_id,
+		})
+
+		const response = await fetch(
+			`https://slack.com/api/pins.list?${params}`,
+			{ headers: this.botHeaders },
+		)
+
+		return response.json()
+	}
+
+	/**
+	 * Pin a message in a channel
+	 *
+	 * @param channel_id - Channel ID containing the message
+	 * @param timestamp - Message timestamp to pin
+	 * @returns Slack pins.add response
+	 */
+	async addPin( channel_id: string, timestamp: string ): Promise<any> {
+		const response = await fetch( 'https://slack.com/api/pins.add', {
+			method: 'POST',
+			headers: this.botHeaders,
+			body: JSON.stringify({
+				channel: channel_id,
+				timestamp: timestamp,
+			}),
+		})
+
+		return response.json()
+	}
+
+	/**
+	 * Get reminders for the authenticated user
+	 *
+	 * @returns Slack reminders.list response
+	 */
+	async getReminders( team_id?: string ): Promise<any> {
+		const params = new URLSearchParams()
+
+		if ( team_id ) {
+			params.append( 'team_id', team_id )
+		}
+
+		const response = await fetch(
+			`https://slack.com/api/reminders.list?${params}`,
+			{ headers: this.botHeaders },
+		)
+
+		return response.json()
+	}
+
+	/**
+	 * Create a reminder
+	 *
+	 * @param text - Reminder text
+	 * @param time - When to remind (Unix timestamp or natural language)
+	 * @param user - User ID to remind (optional, defaults to authenticated user)
+	 * @returns Slack reminders.add response
+	 */
+	async addReminder( text: string, time: string, user?: string, team_id?: string ): Promise<any> {
+		const body: any = {
+			text: text,
+			time: time,
+		}
+
+		if ( team_id ) {
+			body.team_id = team_id
+		}
+
+		if ( user ) {
+			body.user = user
+		}
+
+		const response = await fetch( 'https://slack.com/api/reminders.add', {
+			method: 'POST',
+			headers: this.botHeaders,
+			body: JSON.stringify( body ),
+		})
+
+		return response.json()
+	}
+
+	/**
+	 * Get channels and DMs with unread messages
+	 *
+	 * @returns Array of conversations with unread messages
+	 */
+	async getUnreadChannels( team_id?: string ): Promise<any[]> {
+		const allChannels: any[] = []
+		let cursor: string | undefined
+
+		do {
+			const params = new URLSearchParams({
+				types: 'public_channel,private_channel,im,mpim',
+				exclude_archived: 'true',
+				unreads: 'true',
+				limit: '200',
+			})
+
+			if ( cursor ) {
+				params.append( 'cursor', cursor )
+			}
+
+			if ( team_id ) {
+				params.append( 'team_id', team_id )
+			}
+
+			const response = await fetch(
+				`https://slack.com/api/conversations.list?${params}`,
+				{ headers: this.botHeaders },
+			)
+			const data = await response.json()
+
+			if ( data.ok && data.channels ) {
+				allChannels.push( ...data.channels )
+			}
+
+			cursor = data.response_metadata?.next_cursor || undefined
+		} while ( cursor )
+
+		const unread = allChannels.filter( ( c: any ) => 0 < c.unread_count_display )
+
+		// Enrich DMs with user info
+		const enriched = await Promise.all(
+			unread.map( async ( c: any ) => {
+				const result: any = {
+					id: c.id,
+					name: c.name,
+					unread_count: c.unread_count_display,
+					is_im: c.is_im || false,
+					is_mpim: c.is_mpim || false,
+					is_private: c.is_private || false,
+				}
+
+				if ( c.is_im && c.user ) {
+					result.user = await this.getUser( c.user )
+				}
+
+				return result
+			}),
+		)
+
+		return enriched
 	}
 }
