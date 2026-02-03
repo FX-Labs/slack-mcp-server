@@ -116,3 +116,20 @@ export function stripSearchMatch( match: any ) {
 
 	return stripped
 }
+
+/**
+ * Strip bookmark object to essential fields
+ *
+ * @param bookmark - Raw Slack bookmark object
+ * @returns Stripped bookmark with id, title, type, link, emoji, date_created
+ */
+export function stripBookmark( bookmark: any ) {
+	return {
+		id: bookmark.id,
+		title: bookmark.title,
+		type: bookmark.type,
+		link: bookmark.link,
+		emoji: bookmark.emoji,
+		date_created: bookmark.date_created,
+	}
+}
