@@ -33,6 +33,20 @@ export function createSlackServer( slackClient: SlackClient ): McpServer {
 	})
 
 	server.registerTool(
+		'slack_get_team',
+		{
+			title: 'Get Team',
+			description: 'Get information about the workspace the token is authenticated against. Use this to verify which team you are connected to',
+			inputSchema: {},
+		},
+		async () => {
+			const response = await slackClient.getTeam()
+
+			return formatResponse( response )
+		},
+	)
+
+	server.registerTool(
 		'slack_get_channels',
 		{
 			title: 'Get Channels',
@@ -40,10 +54,11 @@ export function createSlackServer( slackClient: SlackClient ): McpServer {
 			inputSchema: {
 				limit: z.number().optional().default( 100 ).describe( 'Maximum number of channels to return (default 100, max 200)' ),
 				cursor: z.string().optional().describe( 'Pagination cursor for next page of results' ),
+				team_id: z.string().optional().describe( 'Team/workspace ID — use slack_get_team to find this (required for Enterprise Grid)' ),
 			},
 		},
-		async ({ limit, cursor }) => {
-			const response = await slackClient.getChannels( limit, cursor )
+		async ({ limit, cursor, team_id }) => {
+			const response = await slackClient.getChannels( limit, cursor, team_id )
 
 			return formatResponse({
 				channels: response.channels?.map( stripChannel ),
@@ -157,10 +172,11 @@ export function createSlackServer( slackClient: SlackClient ): McpServer {
 			inputSchema: {
 				cursor: z.string().optional().describe( 'Pagination cursor for next page of results' ),
 				limit: z.number().optional().default( 100 ).describe( 'Maximum number of users to return (default 100, max 200)' ),
+				team_id: z.string().optional().describe( 'Team/workspace ID — use slack_get_team to find this (required for Enterprise Grid)' ),
 			},
 		},
-		async ({ cursor, limit }) => {
-			const response = await slackClient.getUsers( limit, cursor )
+		async ({ cursor, limit, team_id }) => {
+			const response = await slackClient.getUsers( limit, cursor, team_id )
 
 			return formatResponse({
 				members: response.members?.map( stripUser ),
@@ -180,10 +196,11 @@ export function createSlackServer( slackClient: SlackClient ): McpServer {
 				cursor: z.string().optional().describe( 'Pagination cursor for next page of results' ),
 				sort: z.enum( [ 'timestamp', 'score' ] ).optional().default( 'timestamp' ).describe( 'Sort order — timestamp for recent first, score for most relevant first (default timestamp)' ),
 				sort_dir: z.enum( [ 'asc', 'desc' ] ).optional().default( 'desc' ).describe( 'Sort direction (default desc)' ),
+				team_id: z.string().optional().describe( 'Team/workspace ID — use slack_get_team to find this (required for Enterprise Grid)' ),
 			},
 		},
-		async ({ query, count, cursor, sort, sort_dir }) => {
-			const response = await slackClient.searchMessages( query, count, cursor, sort, sort_dir )
+		async ({ query, count, cursor, sort, sort_dir, team_id }) => {
+			const response = await slackClient.searchMessages( query, count, cursor, sort, sort_dir, team_id )
 			const matches = await slackClient.enrichMessages( response.messages?.matches || [] )
 
 			return formatResponse({
@@ -306,10 +323,12 @@ export function createSlackServer( slackClient: SlackClient ): McpServer {
 		{
 			title: 'Get Reminders',
 			description: 'Get your reminders',
-			inputSchema: {},
+			inputSchema: {
+				team_id: z.string().optional().describe( 'Team/workspace ID — use slack_get_team to find this (required for Enterprise Grid)' ),
+			},
 		},
-		async () => {
-			const response = await slackClient.getReminders()
+		async ({ team_id }) => {
+			const response = await slackClient.getReminders( team_id )
 
 			return formatResponse({
 				reminders: response.reminders,
@@ -326,10 +345,11 @@ export function createSlackServer( slackClient: SlackClient ): McpServer {
 				text: z.string().describe( 'Reminder text' ),
 				time: z.string().describe( 'When to remind — Unix timestamp or natural language like "in 15 minutes", "every Thursday"' ),
 				user: z.string().optional().describe( 'User ID to remind (defaults to yourself)' ),
+				team_id: z.string().optional().describe( 'Team/workspace ID — use slack_get_team to find this (required for Enterprise Grid)' ),
 			},
 		},
-		async ({ text, time, user }) => {
-			const response = await slackClient.addReminder( text, time, user )
+		async ({ text, time, user, team_id }) => {
+			const response = await slackClient.addReminder( text, time, user, team_id )
 
 			return formatResponse( response )
 		},
@@ -340,10 +360,12 @@ export function createSlackServer( slackClient: SlackClient ): McpServer {
 		{
 			title: 'Get Unreads',
 			description: 'Get channels and DMs with unread messages',
-			inputSchema: {},
+			inputSchema: {
+				team_id: z.string().optional().describe( 'Team/workspace ID — use slack_get_team to find this (required for Enterprise Grid)' ),
+			},
 		},
-		async () => {
-			const unreads = await slackClient.getUnreadChannels()
+		async ({ team_id }) => {
+			const unreads = await slackClient.getUnreadChannels( team_id )
 
 			return formatResponse({
 				unreads: unreads,

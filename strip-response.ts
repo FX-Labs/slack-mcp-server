@@ -10,7 +10,7 @@ export function stripChannel( channel: any ) {
 		name: channel.name,
 		topic: channel.topic?.value,
 		purpose: channel.purpose?.value,
-		num_members: channel.num_members,
+		member_count: channel.num_members,
 		is_private: channel.is_private,
 		is_member: channel.is_member,
 		is_archived: channel.is_archived,

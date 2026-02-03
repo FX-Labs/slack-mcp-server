@@ -1,12 +1,25 @@
 export class SlackClient {
 	private botHeaders: { Authorization: string; 'Content-Type': string }
 	private userCache: Map<string, any> = new Map()
-
 	constructor( token: string ) {
 		this.botHeaders = {
 			Authorization: `Bearer ${token}`,
 			'Content-Type': 'application/json',
 		}
+	}
+
+	/**
+	 * Get workspaces the token has access to
+	 *
+	 * @returns auth.teams.list response with team objects
+	 */
+	async getTeam(): Promise<any> {
+		const response = await fetch(
+			'https://slack.com/api/auth.teams.list',
+			{ headers: this.botHeaders },
+		)
+
+		return response.json()
 	}
 
 	/**
@@ -113,7 +126,7 @@ export class SlackClient {
 	 * @param cursor - Pagination cursor for next page
 	 * @returns Slack conversations.list response
 	 */
-	async getChannels( limit: number = 100, cursor?: string ): Promise<any> {
+	async getChannels( limit: number = 100, cursor?: string, team_id?: string ): Promise<any> {
 		const params = new URLSearchParams({
 			exclude_archived: 'true',
 			types: 'public_channel,private_channel',
@@ -122,6 +135,10 @@ export class SlackClient {
 
 		if ( cursor ) {
 			params.append( 'cursor', cursor )
+		}
+
+		if ( team_id ) {
+			params.append( 'team_id', team_id )
 		}
 
 		const response = await fetch(
@@ -263,13 +280,17 @@ export class SlackClient {
 	 * @param cursor - Pagination cursor for next page
 	 * @returns Slack users.list response
 	 */
-	async getUsers( limit: number = 100, cursor?: string ): Promise<any> {
+	async getUsers( limit: number = 100, cursor?: string, team_id?: string ): Promise<any> {
 		const params = new URLSearchParams({
 			limit: Math.min( limit, 200 ).toString(),
 		})
 
 		if ( cursor ) {
 			params.append( 'cursor', cursor )
+		}
+
+		if ( team_id ) {
+			params.append( 'team_id', team_id )
 		}
 
 		const response = await fetch( `https://slack.com/api/users.list?${params}`, {
@@ -295,6 +316,7 @@ export class SlackClient {
 		cursor?: string,
 		sort: string = 'timestamp',
 		sort_dir: string = 'desc',
+		team_id?: string,
 	): Promise<any> {
 		const params = new URLSearchParams({
 			query: query,
@@ -305,6 +327,10 @@ export class SlackClient {
 
 		if ( cursor ) {
 			params.append( 'cursor', cursor )
+		}
+
+		if ( team_id ) {
+			params.append( 'team_id', team_id )
 		}
 
 		const response = await fetch(
@@ -438,9 +464,15 @@ export class SlackClient {
 	 *
 	 * @returns Slack reminders.list response
 	 */
-	async getReminders(): Promise<any> {
+	async getReminders( team_id?: string ): Promise<any> {
+		const params = new URLSearchParams()
+
+		if ( team_id ) {
+			params.append( 'team_id', team_id )
+		}
+
 		const response = await fetch(
-			'https://slack.com/api/reminders.list',
+			`https://slack.com/api/reminders.list?${params}`,
 			{ headers: this.botHeaders },
 		)
 
@@ -455,10 +487,14 @@ export class SlackClient {
 	 * @param user - User ID to remind (optional, defaults to authenticated user)
 	 * @returns Slack reminders.add response
 	 */
-	async addReminder( text: string, time: string, user?: string ): Promise<any> {
+	async addReminder( text: string, time: string, user?: string, team_id?: string ): Promise<any> {
 		const body: any = {
 			text: text,
 			time: time,
+		}
+
+		if ( team_id ) {
+			body.team_id = team_id
 		}
 
 		if ( user ) {
@@ -479,7 +515,7 @@ export class SlackClient {
 	 *
 	 * @returns Array of conversations with unread messages
 	 */
-	async getUnreadChannels(): Promise<any[]> {
+	async getUnreadChannels( team_id?: string ): Promise<any[]> {
 		const allChannels: any[] = []
 		let cursor: string | undefined
 
@@ -493,6 +529,10 @@ export class SlackClient {
 
 			if ( cursor ) {
 				params.append( 'cursor', cursor )
+			}
+
+			if ( team_id ) {
+				params.append( 'team_id', team_id )
 			}
 
 			const response = await fetch(
